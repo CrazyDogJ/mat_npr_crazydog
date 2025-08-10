@@ -59,6 +59,11 @@ def get_surface_shader_socket(material):
         return None
 
     link = surface_input.links[0]  # 取第一个连接
+
+    group_tree = bpy.data.node_groups.get("Hair Pass Group")
+    if link.from_node.type == "GROUP" and link.from_node.node_tree == group_tree:
+        return None
+    
     return link.from_socket  # 就是接到 Surface 的输出 socket
 
 def connect_shader_to_aov(material, aov_name):
@@ -129,32 +134,25 @@ def hair_transmission(material):
         print("没有连接到 Material Output 的 Shader，无法继续")
         return
 
-    refrac_node = None
-    for n in nodes:
-        if n.type == "BSDF_REFRACTION":
-            refrac_node = n
-            break
-    if not refrac_node:
-        refrac_node = nodes.new("ShaderNodeBsdfRefraction")
-        refrac_node.location = (source_socket.node.location.x + 200, source_socket.node.location.y + 200)
-        refrac_node.inputs["IOR"].default_value = 1.0
+    group_tree = bpy.data.node_groups.get("Hair Pass Group")
 
-    mix_shader_node = None
+    hair_node_group = None
     for n in nodes:
-        if n.type == "MIX_SHADER":
-            mix_shader_node = n
+        if n.type == "GROUP" and n.node_tree == group_tree:
+            hair_node_group = n
             break
-    if not mix_shader_node:
-        mix_shader_node = nodes.new("ShaderNodeMixShader")
-        mix_shader_node.location = (source_socket.node.location.x + 200, source_socket.node.location.y)
-        mix_shader_node.inputs["Fac"].default_value = 0.99999
+
+    if not hair_node_group and group_tree:
+        hair_node_group = nodes.new("ShaderNodeGroup")
+        hair_node_group.node_tree = group_tree
+        hair_node_group.location = (source_socket.node.location.x + 200, source_socket.node.location.y + 200)
 
     mat_output = None
     for n in nodes:
         if n.type == "OUTPUT_MATERIAL":
             mat_output = n
             break
+
     # 建立连接
-    links.new(source_socket, mix_shader_node.inputs[2])
-    links.new(refrac_node.outputs["BSDF"], mix_shader_node.inputs[1])
-    links.new(mix_shader_node.outputs["Shader"], mat_output.inputs["Surface"])
+    links.new(source_socket, hair_node_group.inputs["Shader"])
+    links.new(hair_node_group.outputs["Shader"], mat_output.inputs["Surface"])

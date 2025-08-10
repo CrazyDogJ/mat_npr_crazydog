@@ -213,11 +213,28 @@ class CDNPR_OT_SetupScene(bpy.types.Operator):
         ("Eyes Pass Enabled", "VALUE"),
         ("Eyes Trans Alpha", "VALUE"),
     }
+
+    current_file = os.path.realpath(__file__)
+    addon_root = os.path.dirname(current_file)
+    blend_path = os.path.join(addon_root, "Blender_NPR_Lite.blend")
+    tree_list = {
+        "Hair Pass Group",
+        "Under Pass Group"
+    }
+    
     def execute(self, context):
         props = context.scene.eevee
         props.use_fast_gi = False
         props.use_raytracing = True
         props.ray_tracing_method = "PROBE"
+
+        for item in self.tree_list:
+            if item in bpy.data.node_groups:
+                continue
+            else:
+                with bpy.data.libraries.load(self.blend_path, link=False) as (data_from, data_to):
+                    if item in data_from.node_groups and item not in data_to.node_groups:
+                        data_to.node_groups = [item]
 
         # 用法例子
         vl = helper_functions.get_view_layer()
@@ -232,9 +249,28 @@ class CDNPR_OT_SetupUnderMaterials(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        group_tree = bpy.data.node_groups.get("Under Pass Group")
+
         for mat in context.scene.cdnpr_eyes_mat_items:
-            helper_functions.connect_shader_to_aov(mat.material, "Eyes Infront Pass")
-            helper_functions.new_aov(mat.material, "Eyes Trans Alpha")
+            source_socket = helper_functions.get_surface_shader_socket(mat.material)
+            if not source_socket:
+                print("没有连接到 Material Output 的 Shader，无法继续")
+                continue
+
+            under_node_group = None
+            for n in mat.material.node_tree.nodes:
+                if n.type == "GROUP" and n.node_tree == group_tree:
+                    under_node_group = n
+                    break
+                
+            if not under_node_group and group_tree:
+                under_node_group = mat.material.node_tree.nodes.new("ShaderNodeGroup")
+                under_node_group.node_tree = group_tree
+                under_node_group.location = (source_socket.node.location.x + 200, source_socket.node.location.y + 200)
+
+            links = mat.material.node_tree.links
+            links.new(source_socket, under_node_group.inputs["Shader"])
+
         return {'FINISHED'}
     
 class CDNPR_OT_SetupHairMaterials(bpy.types.Operator):
